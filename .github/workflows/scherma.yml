@@ -1,0 +1,26 @@
+name: Agente Scherma
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Solo prova (non scrive su Notion)?"
+        type: choice
+        options: ["true", "false"]
+        default: "true"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # il primo caricamento (circa 12.000 incontri) dura qualche ora
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python scherma.py
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          DRY_RUN: ${{ inputs.dry_run }}
