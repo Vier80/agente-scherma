@@ -1,0 +1,6 @@
+# Stagioni FIE da importare (una per riga).
+# La stagione FIE prende il nome dall'anno in cui finisce:
+#   2026 = stagione 2025-2026 (Mondiali di Hong Kong, luglio 2026)
+#   2027 = stagione 2026-2027 (quella in corso)
+2026
+2027
