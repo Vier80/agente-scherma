@@ -209,7 +209,8 @@ def parse_tableau(data, ev):
                 f1, f2 = f2, f1  # il vincitore va sempre come Player 1
             s1, s2 = f1.get("score"), f2.get("score")
             score = f"{s1}-{s2}" if s1 is not None and s2 is not None else "Vittoria a tavolino"
-            n1, n2 = (f1.get("name") or "").strip(), (f2.get("name") or "").strip()
+            n1 = re.sub(r"\s+", " ", f1.get("name") or "").strip()  # toglie gli spazi doppi
+            n2 = re.sub(r"\s+", " ", f2.get("name") or "").strip()
             when = ev.get("startDate") if prelim else (ev.get("endDate") or ev.get("startDate"))
             m = {
                 "id": f"{season}|{comp}|{table_id}|{n1}|{n2}",
