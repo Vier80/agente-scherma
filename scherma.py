@@ -1,4 +1,4 @@
-"""Agente Scherma – versione 2 (16/11/2026, scheda 26, sessione 1)
+"""Agente Scherma – versione 2.1 (16/11/2026, scheda 26, sessione 2: lettura a pezzi per il limite di Notion)
 
 Che cosa fa
 -----------
@@ -457,26 +457,45 @@ def testo_prop(prop):
     return ""
 
 
+LIMITE_NOTION = 10000   # una ricerca dell'API Notion restituisce al massimo 10.000 righe (verificato il 16/11/2026)
+
+
 def leggi_righe_esistenti(mapping):
-    """Tutte le righe del db: ID univoco -> {pagina, ID FIE 1, ID FIE 2, Score, Turno}."""
+    """Tutte le righe del db: ID univoco -> {pagina, ID FIE 1, ID FIE 2, Score, Turno}.
+
+    Versione 2.1 (16/11/2026): l'API di Notion non restituisce più di 10.000 righe per ricerca.
+    Con una ricerca sola l'agente non vedrebbe le righe oltre la 10.000ª e le riscriverebbe
+    (doppioni). Per questo la lettura è divisa in 6 ricerche, una per arma e genere; se una
+    arrivasse al limite, lo script si ferma invece di scrivere doppioni.
+    """
     col = {k: mapping[k][0] for k in ("id", "id1", "id2", "score", "round")}
-    righe, cursor = {}, None
-    while True:
-        body = {"page_size": 100}
-        if cursor:
-            body["start_cursor"] = cursor
-        data = notion("POST", f"/databases/{DATABASE_ID}/query", json=body)
-        for page in data["results"]:
-            p = page["properties"]
-            uid = testo_prop(p.get(col["id"]))
-            if not uid:
-                continue
-            righe[uid] = {"page": page["id"], "id1": testo_prop(p.get(col["id1"])),
-                          "id2": testo_prop(p.get(col["id2"])), "score": testo_prop(p.get(col["score"])),
-                          "turno": testo_prop(p.get(col["round"]))}
-        if not data.get("has_more"):
-            return righe
-        cursor = data["next_cursor"]
+    righe = {}
+    for arma in WEAPONS.values():
+        for genere in GENDERS.values():
+            filtro = {"and": [{"property": mapping["weapon"][0], "select": {"equals": arma}},
+                              {"property": mapping["gender"][0], "select": {"equals": genere}}]}
+            lette, cursor = 0, None
+            while True:
+                body = {"page_size": 100, "filter": filtro}
+                if cursor:
+                    body["start_cursor"] = cursor
+                data = notion("POST", f"/databases/{DATABASE_ID}/query", json=body)
+                for page in data["results"]:
+                    lette += 1
+                    p = page["properties"]
+                    uid = testo_prop(p.get(col["id"]))
+                    if not uid:
+                        continue
+                    righe[uid] = {"page": page["id"], "id1": testo_prop(p.get(col["id1"])),
+                                  "id2": testo_prop(p.get(col["id2"])), "score": testo_prop(p.get(col["score"])),
+                                  "turno": testo_prop(p.get(col["round"]))}
+                if not data.get("has_more"):
+                    break
+                cursor = data["next_cursor"]
+            if lette >= LIMITE_NOTION:
+                die(f"{arma} {genere}: {lette} righe, è il limite di Notion. Bisogna dividere ancora la "
+                    "lettura (per esempio per stagione), altrimenti l'agente scriverebbe doppioni.")
+    return righe
 
 
 def notion_value(ptype, value):
