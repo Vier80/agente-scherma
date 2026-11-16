@@ -1,5 +1,9 @@
 name: Agente Scherma
 
+# Repo agente-scherma, file .github/workflows/scherma.yml
+# (versione 2 del 16/11/2026, scheda 26, sessione 1).
+# Parte a mano: Actions -> Agente Scherma -> Run workflow.
+# Il lancio automatico del lunedì (cron-job.org) e l'avvio dell'ELO arrivano nella sessione 3.
 on:
   workflow_dispatch:
     inputs:
@@ -8,19 +12,42 @@ on:
         type: choice
         options: ["true", "false"]
         default: "true"
+      modalita:
+        description: "aggiungi = solo incontri nuovi; completa = in più compila gli ID FIE delle righe esistenti"
+        type: choice
+        options: ["aggiungi", "completa"]
+        default: "aggiungi"
+
+# due lanci contemporanei scriverebbero doppioni: il secondo aspetta che il primo finisca
+concurrency:
+  group: agente-scherma
+  cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 350   # il primo caricamento (circa 12.000 incontri) dura qualche ora
+    timeout-minutes: 350   # lo script si ferma da solo a 330 minuti e chiude in ordine
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install requests
-      - run: python scherma.py
+      - name: Leggi i tabelloni FIE
+        # "shell: bash" fa sì che un errore dello script colori di rosso il lancio anche con "tee"
+        shell: bash
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           DRY_RUN: ${{ inputs.dry_run }}
+          MODALITA: ${{ inputs.modalita }}
+          TEMPO_MAX_MINUTI: "330"
+        # "tee" scrive il registro a video e, insieme, nel file rapporto_scherma.txt
+        run: python -u scherma.py | tee rapporto_scherma.txt
+      - name: Conserva il rapporto (Artifacts in fondo alla pagina del lancio)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapporto-scherma
+          path: rapporto_scherma.txt
+          if-no-files-found: ignore
