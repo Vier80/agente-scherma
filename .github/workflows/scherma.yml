@@ -1,9 +1,13 @@
 name: Agente Scherma
 
 # Repo agente-scherma, file .github/workflows/scherma.yml
-# (versione 2 del 16/11/2026, scheda 26, sessione 1).
-# Parte a mano: Actions -> Agente Scherma -> Run workflow.
-# Il lancio automatico del lunedì (cron-job.org) e l'avvio dell'ELO arrivano nella sessione 3.
+# (versione 3 del 16/11/2026, scheda 26, sessione 3).
+# Parte in due modi:
+#   - a mano: Actions -> Agente Scherma -> Run workflow;
+#   - da solo ogni lunedì alle 6:00 (ora italiana) grazie a cron-job.org, con
+#     dry_run=false e modalita=aggiungi.
+# NOVITÀ della sessione 3: alla fine di ogni lancio vero avvia "ELO Scherma" nel repo map-q-la28,
+# che ricalcola l'ELO, lo scrive in Athletes (ELO Fen) e fa ripubblicare la pagina.
 on:
   workflow_dispatch:
     inputs:
@@ -51,3 +55,38 @@ jobs:
           name: rapporto-scherma
           path: rapporto_scherma.txt
           if-no-files-found: ignore
+
+      # ------------------------------------------------------------------ NOVITÀ della sessione 3
+      - name: Avvia il calcolo ELO (workflow "ELO Scherma" nel repo map-q-la28)
+        # Quando parte:
+        #   - solo nei lanci veri (dry_run = "false"): una prova non ha scritto nulla in Notion;
+        #     format('{0}', ...) trasforma il valore in testo, così la condizione funziona sia
+        #     nel lancio a mano sia in quello di cron-job.org;
+        #   - anche se l'agente ha avuto errori parziali o si è fermato per il limite di tempo:
+        #     l'ELO viene ricalcolato da zero sulle righe presenti in Notion, e quelle mancanti
+        #     entreranno il lunedì successivo. "!cancelled()" = sempre, tranne se il lancio
+        #     è stato annullato a mano.
+        if: ${{ !cancelled() && format('{0}', inputs.dry_run) == 'false' }}
+        env:
+          # token con permesso "Actions: Read and write" sul repo map-q-la28 (creato da Gualtiero)
+          PAGES_TOKEN: ${{ secrets.PAGES_TOKEN }}
+        run: |
+          if [ -z "$PAGES_TOKEN" ]; then
+            echo "ATTENZIONE: il segreto PAGES_TOKEN non c'è, quindi il calcolo ELO non parte."
+            echo "Lancialo a mano: repo map-q-la28 -> Actions -> ELO Scherma -> Run workflow, senza spunta su solo_prova."
+            exit 1
+          fi
+          # gh è il programma di GitHub già installato sui server di Actions.
+          # "elo-scherma.yml" è il nome del FILE del workflow (più sicuro del titolo, che si può cambiare);
+          # -f solo_prova=false = lancio vero: il calcolo scrive ELO Fen in Athletes e salva scherma-elo.json.
+          if GH_TOKEN="$PAGES_TOKEN" gh workflow run elo-scherma.yml \
+               --repo "${{ github.repository_owner }}/map-q-la28" \
+               -f solo_prova=false; then
+            echo "Ho avviato 'ELO Scherma' nel repo map-q-la28: il calcolo dura di solito pochi minuti."
+            echo "Lo trovi in map-q-la28 -> Actions -> ELO Scherma."
+          else
+            echo "ATTENZIONE: non sono riuscito ad avviare 'ELO Scherma'."
+            echo "Cause probabili: al token PAGES_TOKEN manca il permesso 'Actions: Read and write' su map-q-la28,"
+            echo "oppure il token è scaduto. Intanto lancia 'ELO Scherma' a mano, senza spunta su solo_prova."
+            exit 1
+          fi
