@@ -1,18 +1,21 @@
 name: Agente Scherma
 
 # Repo agente-scherma, file .github/workflows/scherma.yml
-# (versione 3 del 16/11/2026, scheda 26, sessione 3).
-# Parte in due modi:
+# (versione 5 del 23/11/2026, scheda 55: lancio leggero nei giorni di gara).
+# Parte in tre modi:
 #   - a mano: Actions -> Agente Scherma -> Run workflow;
-#   - da solo ogni lunedì alle 6:00 (ora italiana) grazie a cron-job.org, con
-#     dry_run=false e modalita=aggiungi.
-# NOVITÀ della sessione 3: alla fine di ogni lancio vero avvia "ELO Scherma" nel repo map-q-la28,
-# che ricalcola l'ELO, lo scrive in Athletes (ELO Fen) e fa ripubblicare la pagina.
+#   - ogni lunedì alle 6:00 (ora italiana) da cron-job.org, lancio COMPLETO:
+#     corpo {"ref":"main","inputs":{"dry_run":"false","modalita":"aggiungi"}} -> alla fine parte l'ELO;
+#   - venerdì, sabato e domenica sera da un secondo job di cron-job.org, lancio LEGGERO:
+#     corpo {"ref":"main","inputs":{"dry_run":"false","modalita":"aggiungi","elo":"false"}}
+#     -> aggiorna Notion e la pagina dei risultati (tappe «in corso»), ma NON avvia l'ELO.
+# Storia: v4 (scheda 54) secret MAPPA_TOKEN e scherma-risultati.json negli Artifacts;
+#         v5 (scheda 55) NOVITÀ: input "elo" (predefinito "true", quindi il lunedì non cambia nulla).
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Solo prova (non scrive su Notion)?"
+        description: "Solo prova (non scrive su Notion e non pubblica la pagina)?"
         type: choice
         options: ["true", "false"]
         default: "true"
@@ -21,6 +24,12 @@ on:
         type: choice
         options: ["aggiungi", "completa"]
         default: "aggiungi"
+      elo:
+        # NOVITÀ v5: "false" = lancio leggero dei giorni di gara, senza ricalcolare l'ELO
+        description: "Alla fine avvia il calcolo ELO (solo nei lanci veri)?"
+        type: choice
+        options: ["true", "false"]
+        default: "true"
 
 # due lanci contemporanei scriverebbero doppioni: il secondo aspetta che il primo finisca
 concurrency:
@@ -37,36 +46,41 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-      - name: Leggi i tabelloni FIE
+      - name: Leggi i tabelloni FIE (Notion e pagina web)
         # "shell: bash" fa sì che un errore dello script colori di rosso il lancio anche con "tee"
         shell: bash
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          # token con "Contents" e "Actions" in lettura e scrittura su map-q-la28 (v4, scheda 54)
+          MAPPA_TOKEN: ${{ secrets.MAPPA_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run }}
           MODALITA: ${{ inputs.modalita }}
           TEMPO_MAX_MINUTI: "330"
         # "tee" scrive il registro a video e, insieme, nel file rapporto_scherma.txt
         run: python -u scherma.py | tee rapporto_scherma.txt
-      - name: Conserva il rapporto (Artifacts in fondo alla pagina del lancio)
+      - name: Conserva rapporto e json (Artifacts in fondo alla pagina del lancio)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rapporto-scherma
-          path: rapporto_scherma.txt
+          path: |
+            rapporto_scherma.txt
+            scherma-risultati.json
           if-no-files-found: ignore
 
-      # ------------------------------------------------------------------ NOVITÀ della sessione 3
       - name: Avvia il calcolo ELO (workflow "ELO Scherma" nel repo map-q-la28)
         # Quando parte:
         #   - solo nei lanci veri (dry_run = "false"): una prova non ha scritto nulla in Notion;
+        #   - NOVITÀ v5: non nei lanci leggeri (elo = "false"). Se l'input manca (es. il job del
+        #     lunedì, che non lo manda) vale il predefinito "true", quindi l'ELO parte come prima;
         #     format('{0}', ...) trasforma il valore in testo, così la condizione funziona sia
         #     nel lancio a mano sia in quello di cron-job.org;
         #   - anche se l'agente ha avuto errori parziali o si è fermato per il limite di tempo:
         #     l'ELO viene ricalcolato da zero sulle righe presenti in Notion, e quelle mancanti
         #     entreranno il lunedì successivo. "!cancelled()" = sempre, tranne se il lancio
         #     è stato annullato a mano.
-        if: ${{ !cancelled() && format('{0}', inputs.dry_run) == 'false' }}
+        if: ${{ !cancelled() && format('{0}', inputs.dry_run) == 'false' && format('{0}', inputs.elo) != 'false' }}
         env:
           # token con permesso "Actions: Read and write" sul repo map-q-la28 (creato da Gualtiero)
           PAGES_TOKEN: ${{ secrets.PAGES_TOKEN }}
@@ -90,3 +104,7 @@ jobs:
             echo "oppure il token è scaduto. Intanto lancia 'ELO Scherma' a mano, senza spunta su solo_prova."
             exit 1
           fi
+      - name: Lancio leggero (elo = false)
+        if: ${{ format('{0}', inputs.dry_run) == 'false' && format('{0}', inputs.elo) == 'false' }}
+        run: |
+          echo "Lancio leggero dei giorni di gara: Notion e pagina dei risultati aggiornati, ELO non avviato (parte il lunedì)."
